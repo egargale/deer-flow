@@ -223,6 +223,7 @@ export interface ChartData {
     symbol?: string;
     timeframe?: string;
     source: 'csv' | 'json';
+    indicators?: string[];  // Detected indicator columns
   };
   columns: string[];
   rows: DataPoint[];
@@ -328,7 +329,7 @@ export const TEMPLATES: Template[] = [
         name: 'Price',
         stretchFactor: 0.8,
         series: [
-          { type: 'candlestick', dataKey: 'price' }
+          { type: 'candlestick', dataKey: 'close' }
         ]
       },
       {
@@ -350,7 +351,7 @@ export const TEMPLATES: Template[] = [
         name: 'Price',
         stretchFactor: 1.0,
         series: [
-          { type: 'candlestick', dataKey: 'price' },
+          { type: 'candlestick', dataKey: 'close' },
           { type: 'line', dataKey: 'sma200', options: { color: '#FF6D00', lineWidth: 2, title: 'SMA200' } },
           { type: 'line', dataKey: 'vstop', options: { color: '#4CAF50', lineStyle: 2, lineWidth: 2, title: 'VSTOP' } }
         ]
@@ -367,7 +368,7 @@ export const TEMPLATES: Template[] = [
         name: 'Price',
         stretchFactor: 0.7,
         series: [
-          { type: 'candlestick', dataKey: 'price' },
+          { type: 'candlestick', dataKey: 'close' },
           { type: 'line', dataKey: 'sma200', options: { color: '#FF6D00', lineWidth: 2, title: 'SMA200' } }
         ]
       },
@@ -392,7 +393,7 @@ export const TEMPLATES: Template[] = [
         name: 'Price',
         stretchFactor: 0.6,
         series: [
-          { type: 'candlestick', dataKey: 'price' },
+          { type: 'candlestick', dataKey: 'close' },
           { type: 'line', dataKey: 'sma200', options: { color: '#FF6D00', lineWidth: 2, title: 'SMA200' } },
           { type: 'line', dataKey: 'vstop', options: { color: '#4CAF50', lineStyle: 2, lineWidth: 2, title: 'VSTOP' } }
         ]
@@ -430,7 +431,7 @@ export function getCompatibleTemplates(presentIndicators: string[]): Template[] 
     const requiredIndicators = new Set<string>();
     template.panes.forEach(pane => {
       pane.series.forEach(series => {
-        if (series.dataKey !== 'price' && series.dataKey !== 'volume') {
+        if (series.dataKey !== 'close' && series.dataKey !== 'volume') {
           requiredIndicators.add(series.dataKey.toLowerCase());
         }
       });
@@ -551,9 +552,15 @@ function normalizeData(rows: Record<string, unknown>[]): ChartData {
   // Get columns from first row
   const columns = Object.keys(rows[0]).map(k => columnMap[k] || k.toLowerCase());
 
+  // Detect present indicators
+  const presentIndicators = columns.filter(c =>
+    ['sma200', 'vstop', 'adx', 'di_plus', 'di_minus'].includes(c)
+  );
+
   return {
     metadata: {
       source: 'csv',
+      indicators: presentIndicators,
     },
     columns,
     rows: normalizedRows,
@@ -654,20 +661,47 @@ export function validateChartData(data: ChartData): ValidationResult {
     });
   }
 
-  // Detect present indicators
-  const presentIndicators = new Set<string>();
-  OPTIONAL_COLUMNS.forEach(col => {
-    if (columns.includes(col)) {
-      presentIndicators.add(col);
-    }
-  });
+  // Sort data chronologically and warn if re-ordered
+  const wasSorted = checkIfSorted(data.rows);
+  if (!wasSorted) {
+    data.rows.sort((a, b) => {
+      const aTime = typeof a.time === 'string' ? new Date(a.time).getTime() : a.time;
+      const bTime = typeof b.time === 'string' ? new Date(b.time).getTime() : b.time;
+      return aTime - bTime;
+    });
+    warnings.push({
+      type: 'data_sorted',
+      message: 'Data was not in chronological order and has been auto-sorted.',
+    });
+  }
+
+  // Detect present indicators (from metadata if available, or scan columns)
+  const presentIndicators = data.metadata.indicators || [];
+  if (presentIndicators.length === 0) {
+    OPTIONAL_COLUMNS.forEach(col => {
+      if (columns.includes(col)) {
+        presentIndicators.push(col);
+      }
+    });
+  }
 
   return {
     valid: errors.length === 0,
     errors,
     warnings,
-    presentIndicators: Array.from(presentIndicators),
+    presentIndicators,
   };
+}
+
+function checkIfSorted(rows: DataPoint[]): boolean {
+  for (let i = 1; i < rows.length; i++) {
+    const prevTime = typeof rows[i - 1].time === 'string' ? new Date(rows[i - 1].time).getTime() : rows[i - 1].time;
+    const currTime = typeof rows[i].time === 'string' ? new Date(rows[i].time).getTime() : rows[i].time;
+    if (currTime < prevTime) {
+      return false;
+    }
+  }
+  return true;
 }
 ```
 
@@ -715,16 +749,14 @@ export function buildChart(
     layout: {
       background: { type: 'solid', color: bgColor },
       textColor,
-    },
-    grid: {
-      vertLines: { color: gridColor },
-      horzLines: { color: gridColor },
-    },
-    layout: {
       panes: {
         separatorColor: '#333333',
         enableResize: true,
       },
+    },
+    grid: {
+      vertLines: { color: gridColor },
+      horzLines: { color: gridColor },
     },
   });
 
@@ -794,7 +826,7 @@ function mapDataToSeries(
       time: row.time,
     };
 
-    if (isCandlestick && dataKey === 'price') {
+    if (isCandlestick && dataKey === 'close') {
       // Candlestick needs OHLC
       point.open = row.open;
       point.high = row.high;
@@ -1083,9 +1115,10 @@ Create `src/components/ChartRenderer.svelte`:
 
   let container: HTMLDivElement;
   let chart: IChartApi | null = null;
+  let previousTemplate: Template | null = null;
 
-  // Rebuild chart when template changes
-  $: if (template && data && chart) {
+  // Rebuild chart when template or data changes
+  $: if (data && template && template !== previousTemplate) {
     rebuildChart();
   }
 
@@ -1097,6 +1130,7 @@ Create `src/components/ChartRenderer.svelte`:
 
     if (container && data && template) {
       chart = buildChart(container, data, template);
+      previousTemplate = template;
       onLoad();
     }
   }
@@ -1104,6 +1138,7 @@ Create `src/components/ChartRenderer.svelte`:
   onMount(() => {
     if (container && data && template) {
       chart = buildChart(container, data, template);
+      previousTemplate = template;
       onLoad();
     }
   });
@@ -1292,6 +1327,7 @@ git commit -m "feat: add main index page"
 **Files:**
 - Create: `skills/custom/tradingview-charts/tradingview-charts-web/public/samples/basic.csv`
 - Create: `skills/custom/tradingview-charts/tradingview-charts-web/public/samples/with-indicators.csv`
+- Create: `skills/custom/tradingview-charts/tradingview-charts-web/public/samples/sample.json`
 
 - [ ] **Step 1: Create basic sample CSV**
 
@@ -1317,7 +1353,41 @@ Date,Open,High,Low,Close,Volume,SMA200,VSTOP,ADX,DI_plus,DI_minus
 2024-01-05,161.0,164.0,159.0,163.5,1400000,149.1,148.4,27.8,22.5,10.8
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Create sample JSON**
+
+Create `public/samples/sample.json`:
+```json
+[
+  {
+    "Date": "2024-01-01",
+    "Open": 150.0,
+    "High": 155.0,
+    "Low": 148.0,
+    "Close": 153.5,
+    "Volume": 1000000,
+    "SMA200": 148.5,
+    "VSTOP": 147.2,
+    "ADX": 25.3,
+    "DI_plus": 18.5,
+    "DI_minus": 12.1
+  },
+  {
+    "Date": "2024-01-02",
+    "Open": 153.5,
+    "High": 158.0,
+    "Low": 152.0,
+    "Close": 157.0,
+    "Volume": 1200000,
+    "SMA200": 148.6,
+    "VSTOP": 147.5,
+    "ADX": 26.1,
+    "DI_plus": 19.2,
+    "DI_minus": 11.8
+  }
+]
+```
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add public/samples/
@@ -1379,24 +1449,205 @@ git commit -m "chore: add dependency lockfile"
 ## Task 15: Update SKILL.md
 
 **Files:**
-- Modify: `skills/custom/tradingview-charts/SKILL.md` (already created, verify content)
+- Create: `skills/custom/tradingview-charts/SKILL.md` (already exists, verify and update if needed)
 
-- [ ] **Step 1: Verify SKILL.md exists and is correct**
+- [ ] **Step 1: Verify SKILL.md exists and matches specification**
 
-Check that `skills/custom/tradingview-charts/SKILL.md` contains:
-- YAML frontmatter with name, description, license, compatibility
-- Quick Start section with npm install commands
-- Running Locally section with dev server commands
-- Deploying section with Netlify instructions
-- Removing section with cleanup commands
-- Data Format section with CSV/JSON schema
-- Templates section listing available templates
+The SKILL.md file should already exist at `skills/custom/tradingview-charts/SKILL.md` with the following content:
 
-- [ ] **Step 2: Commit if any updates needed**
+```markdown
+---
+name: tradingview-charts
+description: Generate interactive financial charts using TradingView Lightweight Charts library. Converts CSV/JSON OHLCV data with pre-calculated Messina Signals indicators (SMA200, VSTOP, ADX/DI) into multi-pane candlestick charts. Use with @finance-analysis skill to fetch stock data and calculate indicators, then visualize results here.
+license: MIT
+compatibility: Node.js 18+, npm 10+, Netlify deployment, modern browser with Canvas support
+metadata:
+  version: "2.0.0"
+  type: "web-application"
+  runtime: "astro-spa"
+  depends_on: "finance-analysis"
+---
+
+# TradingView Charts Skill
+
+Generate professional, interactive financial charts with multi-pane layouts for Messina Signals technical indicators.
+
+## Data Source
+
+**IMPORTANT:** This skill requires pre-calculated OHLCV data with technical indicators. Use the @finance-analysis skill to:
+
+1. Fetch stock data (Yahoo Finance, Alpha Vantage, etc.)
+2. Calculate Messina Signals indicators (SMA200, VSTOP, ADX/DI)
+3. Export data to CSV/JSON format
+
+Then upload the exported file to this chart application for visualization.
+
+## Quick Start
+
+### Installation
+
+```bash
+cd skills/custom/tradingview-charts/tradingview-charts-web
+npm install
+```
+
+### First Time Setup
+
+```bash
+# Install dependencies
+npm install
+
+# Run development server
+npm run dev
+
+# Open http://localhost:4321
+```
+
+## Running Locally
+
+### Development Mode
+
+```bash
+# Start Astro dev server with hot-reload
+npm run dev
+
+# Access at http://localhost:4321
+```
+
+### Production Preview
+
+```bash
+# Build for production
+npm run build
+
+# Preview production build locally
+npm run preview
+
+# Access at http://localhost:4321
+```
+
+## Deploying
+
+### Deploy to Netlify
+
+```bash
+# Using Netlify CLI (recommended)
+npm install -g netlify-cli
+netlify login
+netlify link
+npm run build
+netlify deploy --prod
+```
+
+### Environment Variables
+
+No environment variables required for basic functionality.
+
+Optional (for Blob Store sharing):
+- `NETLIFY_BLOB_STORE_URL` - Auto-configured in Netlify
+
+## Removing
+
+### Uninstall Skill
+
+```bash
+# From skill root
+cd skills/custom/tradingview-charts
+
+# Remove dependencies and build artifacts
+rm -rf tradingview-charts-web/node_modules
+rm -rf tradingview-charts-web/.astro
+rm -rf tradingview-charts-web/dist
+
+# Remove from Netlify (if deployed)
+netlify sites:delete
+```
+
+## Data Format
+
+### CSV Schema
+
+```csv
+Date,Open,High,Low,Close,Volume,SMA200,VSTOP,ADX,DI_plus,DI_minus
+2024-01-01,150.0,155.0,148.0,153.5,1000000,148.5,147.2,25.3,18.5,12.1
+```
+
+### JSON Schema
+
+```json
+[
+  {
+    "Date": "2024-01-01",
+    "Open": 150.0,
+    "High": 155.0,
+    "Low": 148.0,
+    "Close": 153.5,
+    "Volume": 1000000,
+    "SMA200": 148.5,
+    "VSTOP": 147.2,
+    "ADX": 25.3,
+    "DI_plus": 18.5,
+    "DI_minus": 12.1
+  }
+]
+```
+
+**Required Columns:** Date, Open, High, Low, Close
+**Optional Columns:** Volume, SMA200, VSTOP, ADX, DI_plus, DI_minus
+
+## Chart Templates
+
+| Template | Description | Required Data |
+|----------|-------------|---------------|
+| Basic Candlestick | Price + Volume | OHLCV |
+| Messina Trend | SMA200 + VSTOP overlays | OHLC + SMA200 + VSTOP |
+| Messina Momentum | ADX/DI in separate pane | OHLC + SMA200 + ADX + DI_plus + DI_minus |
+| Messina Complete | All indicators in 3 panes | All columns |
+
+## Multi-Pane Layouts
+
+Templates use multi-pane layouts to separate price data from indicators:
+
+- **Main Pane (60-70%)**: Price candlesticks + overlay indicators (SMA200, VSTOP)
+- **ADX Pane (25-30%)**: ADX, DI_plus, DI_minus lines
+- **Volume Pane (15-20%)**: Volume histogram
+
+Panes auto-resize and can be adjusted by dragging separators.
+
+## Chart Sharing
+
+Charts can be shared via Netlify Blob Store:
+
+1. Create chart from uploaded data
+2. Click "Share Chart" button
+3. Receive shareable URL: `https://your-site.netlify.app/view/[blob-id]`
+4. Charts expire after 30 days
+
+## References
+
+- [Multi-Pane Implementation](references/panes.md) - Detailed panes API guide
+- [Complete API Reference](references/api-reference.md) - All Lightweight Charts methods
+- [Agent Skills Spec](https://agentskills.io/specification) - Skill structure requirements
+
+## Troubleshooting
+
+**Chart not rendering:**
+- Verify CSV has Date, Open, High, Low, Close columns
+- Check browser console for errors
+- Ensure data is sorted chronologically
+
+**Panes not displaying:**
+- Verify indicator columns exist in data (ADX, DI_plus, DI_minus)
+- Check template matches available data columns
+```
+
+- [ ] **Step 2: If SKILL.md is missing or incomplete, create it with the content above**
+
+- [ ] **Step 3: Commit**
 
 ```bash
 git add skills/custom/tradingview-charts/SKILL.md
-git commit -m "docs: ensure SKILL.md is complete"
+git commit -m "docs: ensure SKILL.md is complete with finance-analysis integration"
 ```
 
 ---
@@ -1405,6 +1656,7 @@ git commit -m "docs: ensure SKILL.md is complete"
 
 **Files:**
 - Create: `skills/custom/tradingview-charts/scripts/setup.sh`
+- Create: `skills/custom/tradingview-charts/scripts/deploy.sh`
 
 - [ ] **Step 1: Create setup script**
 
@@ -1427,17 +1679,48 @@ echo "Setup complete!"
 echo "Run 'npm run dev' to start development server"
 ```
 
-- [ ] **Step 2: Make script executable**
+- [ ] **Step 2: Create deploy script**
+
+Create `scripts/deploy.sh`:
+```bash
+#!/bin/bash
+set -e
+
+echo "Deploying TradingView Charts SPA to Netlify..."
+
+cd tradingview-charts-web
+
+# Check if Netlify CLI is installed
+if ! command -v netlify &> /dev/null; then
+    echo "Netlify CLI not found. Installing..."
+    npm install -g netlify-cli
+fi
+
+# Build for production
+echo "Building for production..."
+npm run build
+
+# Deploy to Netlify
+echo "Deploying to Netlify..."
+cd dist
+netlify deploy --prod
+
+echo "Deployment complete!"
+echo "Check your Netlify dashboard for the deployed URL."
+```
+
+- [ ] **Step 3: Make scripts executable**
 
 ```bash
 chmod +x skills/custom/tradingview-charts/scripts/setup.sh
+chmod +x skills/custom/tradingview-charts/scripts/deploy.sh
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add scripts/
-git commit -m "feat: add setup script"
+git commit -m "feat: add setup and deploy scripts"
 ```
 
 ---
