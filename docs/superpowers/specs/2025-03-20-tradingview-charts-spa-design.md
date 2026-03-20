@@ -153,19 +153,25 @@ interface SeriesConfig {
 const chart = createChart(container, options);
 
 // Pane 0 (default) - Price series
-chart.addSeries(CandlestickSeries, priceOptions, 0);
+const priceSeries = chart.addSeries(CandlestickSeries, priceOptions, 0);
 
-// Pane 1 (creates new pane) - ADX/DI series
-chart.addSeries(LineSeries, adxOptions, 1);
-chart.addSeries(LineSeries, diPlusOptions, 1);
-chart.addSeries(LineSeries, diMinusOptions, 1);
+// Pane 1 (creates new pane automatically) - ADX/DI series
+const adxSeries = chart.addSeries(LineSeries, adxOptions, 1);
+const diPlusSeries = chart.addSeries(LineSeries, diPlusOptions, 1);
+const diMinusSeries = chart.addSeries(LineSeries, diMinusOptions, 1);
+
+// Set pane heights (optional - panes auto-size by default)
+const panes = chart.panes();
+panes[0].setHeight(400);  // Set main pane height in pixels
+panes[1].setStretchFactor(0.3);  // Set ADX pane to 30% of remaining space
 ```
 
-Key Lightweight Charts API methods:
-- `addSeries(definition, options, paneIndex)` - Add to specific pane
-- `panes()` - Get array of panes
-- `pane.setHeight(height)` - Set pixel height
-- `pane.setStretchFactor(factor)` - Set relative height
+Key Lightweight Charts API methods (v5.1.0):
+- `addSeries(definition, options?, paneIndex?)` - Add series to specific pane (paneIndex optional, defaults to 0)
+- `panes()` - Get array of all panes
+- `pane.setHeight(height)` - Set fixed pixel height (min 30px)
+- `pane.setStretchFactor(factor)` - Set relative height ratio (v5.0+, defaults to 1.0)
+- `removePane(index)` - Remove pane and all its series
 
 ## Data Flow
 
@@ -187,14 +193,36 @@ ChartRenderer.svelte (create multi-pane chart)
 
 ## Validation Rules
 
-| Check | Description |
-|-------|-------------|
-| File type | Only .csv and .json allowed |
-| File size | Max 10MB |
-| Required columns | Date, Open, High, Low, Close must exist |
-| Data types | OHLCV columns must be numeric |
-| Sorting | Data must be chronologically sorted |
-| Minimum rows | Varies by template (200+ for SMA200) |
+| Check | Description | Error Message |
+|-------|-------------|---------------|
+| File type | Only .csv and .json allowed | "Invalid file type. Please upload a CSV or JSON file." |
+| File size | Max 10MB (configurable) | "File too large. Maximum size is 10MB." |
+| Required columns | Date, Open, High, Low, Close must exist | "Missing required columns: [list]" |
+| Data types | OHLCV columns must be numeric | "Invalid data type in column [name] at row [n]" |
+| Sorting | Data must be chronologically sorted | Auto-sorted, warning shown if re-ordered |
+| Minimum rows | Varies by template (200+ for SMA200) | "Insufficient data for [template]. Need [n] rows." |
+
+### Error Handling
+
+```typescript
+interface ValidationResult {
+  valid: boolean;
+  errors: ErrorItem[];
+  warnings: WarningItem[];
+  presentIndicators: string[];
+}
+
+interface ErrorItem {
+  type: 'file_type' | 'file_size' | 'missing_columns' | 'invalid_data' | 'insufficient_rows';
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+// ErrorMessage.svelte displays errors with:
+// - Severity indicator (error/warning)
+// - Actionable fix suggestions
+// - Link to sample data format
+```
 
 ## Chart Sharing (Optional)
 
@@ -248,6 +276,71 @@ interface StoredChart {
 - Multi-pane rendering verification
 - Blob Store save/load functionality
 - Browser compatibility (Chrome, Firefox, Safari, Edge)
+
+## Performance Considerations
+
+| Metric | Target | Notes |
+|--------|--------|-------|
+| File size limit | 10MB | ~100K rows of OHLCV data |
+| Initial render | <2s | For files up to 5MB |
+| Chart interaction | <100ms | Zoom, pan responsiveness |
+| Memory usage | <200MB | Browser heap limit consideration |
+
+**Optimization Strategies:**
+- Stream large file parsing (don't load entire file into memory)
+- Lazy render indicators outside visible time range
+- Debounce chart resize events
+- Use Web Workers for data parsing (future enhancement)
+
+## Component Interfaces
+
+```typescript
+// FileUploader.svelte
+interface FileUploaderProps {
+  onFileLoaded: (data: ChartData) => void;
+  onError: (error: string) => void;
+  maxSize?: number;  // Default: 10MB
+}
+
+// TemplateSelector.svelte
+interface TemplateSelectorProps {
+  templates: Template[];
+  presentIndicators: string[];
+  selectedTemplate: Template;
+  onSelect: (template: Template) => void;
+}
+
+// ChartRenderer.svelte
+interface ChartRendererProps {
+  data: ChartData;
+  template: Template;
+  containerId: string;
+  onLoad?: () => void;
+}
+
+// ShareButton.svelte
+interface ShareButtonProps {
+  data: ChartData;
+  templateId: string;
+  onShared?: (url: string) => void;
+}
+```
+
+## Browser Support
+
+| Browser | Minimum Version | Notes |
+|---------|----------------|-------|
+| Chrome | 90+ | Full support |
+| Firefox | 88+ | Full support |
+| Safari | 14.1+ | Full support |
+| Edge | 90+ | Full support |
+
+**Required Features:**
+- ES6+ (async/await, arrow functions, destructuring)
+- Canvas API (for chart rendering)
+- ResizeObserver (for responsive sizing)
+- FileReader API (for file upload)
+- Fetch API (for Blob Store)
 
 ## Migration Notes
 
