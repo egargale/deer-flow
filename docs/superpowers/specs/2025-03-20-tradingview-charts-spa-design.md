@@ -127,10 +127,15 @@ interface Template {
 
 interface PaneConfig {
   name: string;
-  height?: number;           // Fixed height in pixels
-  stretchFactor?: number;    // Relative height (0-1)
+  height?: number;           // Fixed height in pixels (30px minimum)
+  stretchFactor?: number;    // Relative size ratio (default: 1.0)
   series: SeriesConfig[];
 }
+
+// Pane height resolution (in chart-builder.ts):
+// 1. If height is set, use exact pixel value
+// 2. Else if stretchFactor is set, use ratio relative to other panes
+// 3. Else use library default (equal distribution)
 
 interface SeriesConfig {
   type: 'candlestick' | 'line' | 'area' | 'bar' | 'baseline' | 'histogram';
@@ -152,26 +157,40 @@ interface SeriesConfig {
 // Creating series in separate panes
 const chart = createChart(container, options);
 
-// Pane 0 (default) - Price series
-const priceSeries = chart.addSeries(CandlestickSeries, priceOptions, 0);
+// Pane 0 (default, auto-created) - Price series
+const priceSeries = chart.addSeries(CandlestickSeries, priceOptions);
 
-// Pane 1 (creates new pane automatically) - ADX/DI series
+// Pane 1 (auto-created when referenced) - ADX/DI series
+// When paneIndex doesn't exist, the library creates it automatically
 const adxSeries = chart.addSeries(LineSeries, adxOptions, 1);
 const diPlusSeries = chart.addSeries(LineSeries, diPlusOptions, 1);
 const diMinusSeries = chart.addSeries(LineSeries, diMinusOptions, 1);
 
-// Set pane heights (optional - panes auto-size by default)
+// Adjust pane sizes after creation (optional)
 const panes = chart.panes();
-panes[0].setHeight(400);  // Set main pane height in pixels
-panes[1].setStretchFactor(0.3);  // Set ADX pane to 30% of remaining space
+
+// Option 1: Set pixel heights (absolute)
+panes[0].setHeight(400);  // Main pane: 400px
+
+// Option 2: Set stretch factors (relative ratios)
+// Stretch factors are ratios where 1.0 = default, 0.5 = half, 2.0 = double
+// When multiple panes have stretch factors, sizes are proportional to the sum
+panes[1].setStretchFactor(0.3);  // ADX pane: 30% of default size
 ```
 
+**Important Notes:**
+- Specifying a `paneIndex` that doesn't exist automatically creates that pane
+- `stretchFactor` is a ratio, not a percentage. Values like 0.3 mean "30% of default size"
+- If neither `height` nor `stretchFactor` is set, panes auto-size equally
+- Minimum pane height is 30px (enforced by the library)
+
 Key Lightweight Charts API methods (v5.1.0):
-- `addSeries(definition, options?, paneIndex?)` - Add series to specific pane (paneIndex optional, defaults to 0)
+- `addSeries(definition, options?, paneIndex?)` - Add series to pane (auto-creates pane if needed)
 - `panes()` - Get array of all panes
-- `pane.setHeight(height)` - Set fixed pixel height (min 30px)
-- `pane.setStretchFactor(factor)` - Set relative height ratio (v5.0+, defaults to 1.0)
+- `pane.setHeight(height)` - Set fixed pixel height (min 30px, overrides stretchFactor)
+- `pane.setStretchFactor(factor)` - Set relative size ratio (default: 1.0)
 - `removePane(index)` - Remove pane and all its series
+- `chart.remove()` - Clean up chart (MUST call in Svelte onDestroy)
 
 ## Data Flow
 
@@ -323,6 +342,96 @@ interface ShareButtonProps {
   data: ChartData;
   templateId: string;
   onShared?: (url: string) => void;
+}
+```
+
+## Chart Lifecycle Management
+
+**Critical:** Lightweight Charts requires proper cleanup to prevent memory leaks.
+
+```svelte
+<!-- ChartRenderer.svelte -->
+<script lang="ts">
+  import { createChart, type IChartApi } from 'lightweight-charts';
+  import { onDestroy, onMount } from 'svelte';
+
+  export let data: ChartData;
+  export let template: Template;
+
+  let chart: IChartApi | null = null;
+  let container: HTMLDivElement;
+
+  onMount(() => {
+    chart = createChart(container, { /* options */ });
+    // ... add series, set data ...
+  });
+
+  onDestroy(() => {
+    // MUST call chart.remove() to prevent memory leaks
+    chart?.remove();
+    chart = null;
+  });
+
+  // Re-create chart when template changes
+  $: if (template && chart) {
+    chart.remove();
+    chart = createChart(container, /* new options */);
+  }
+</script>
+
+<div bind:this={container} class="chart-container"></div>
+```
+
+## Multi-Pane Creation Workflow
+
+```typescript
+// chart-builder.ts
+function buildChart(
+  container: HTMLElement,
+  data: ChartData,
+  template: Template
+): IChartApi {
+  const chart = createChart(container, {
+    layout: {
+      background: { type: 'solid', color: getBgColor(template.theme) },
+      textColor: getTextColor(template.theme),
+      panes: {
+        separatorColor: '#333333',
+        enableResize: true,
+      },
+    },
+  });
+
+  // Clean up any existing panes first
+  while (chart.panes().length > 1) {
+    chart.removePane(chart.panes().length - 1);
+  }
+
+  // Create panes and series from template
+  template.panes.forEach((paneConfig, paneIndex) => {
+    paneConfig.series.forEach(seriesConfig => {
+      const series = chart.addSeries(
+        getSeriesType(seriesConfig.type),
+        seriesConfig.options || {},
+        paneIndex  // Auto-creates pane if it doesn't exist
+      );
+
+      const seriesData = mapDataToSeries(data, seriesConfig.dataKey);
+      series.setData(seriesData);
+    });
+
+    // Apply pane sizing after series are added
+    const pane = chart.panes()[paneIndex];
+    if (pane) {
+      if (paneConfig.height) {
+        pane.setHeight(paneConfig.height);
+      } else if (paneConfig.stretchFactor) {
+        pane.setStretchFactor(paneConfig.stretchFactor);
+      }
+    }
+  });
+
+  return chart;
 }
 ```
 
