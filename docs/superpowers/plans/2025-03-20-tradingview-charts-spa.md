@@ -128,11 +128,7 @@ export default defineConfig({
 Create `tsconfig.json`:
 ```json
 {
-  "extends": "astro/tsconfigs/strict",
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "jsxImportSource": "svelte"
-  }
+  "extends": "astro/tsconfigs/strict"
 }
 ```
 
@@ -617,7 +613,7 @@ export function validateFile(file: File): ErrorItem[] {
 
 export function validateChartData(data: ChartData): ValidationResult {
   const errors: ErrorItem[] = [];
-  const warnings: ErrorItem[] = [];
+  const warnings: WarningItem[] = [];
   const columns = data.columns.map(c => c.toLowerCase());
 
   // Check required columns
@@ -676,7 +672,7 @@ export function validateChartData(data: ChartData): ValidationResult {
   }
 
   // Detect present indicators (from metadata if available, or scan columns)
-  const presentIndicators = data.metadata.indicators || [];
+  let presentIndicators = data.metadata.indicators ? [...data.metadata.indicators] : [];
   if (presentIndicators.length === 0) {
     OPTIONAL_COLUMNS.forEach(col => {
       if (columns.includes(col)) {
@@ -952,7 +948,7 @@ Create `src/components/FileUploader.svelte`:
   }
 </script>
 
-<div class="file-updater">
+<div class="file-uploader">
   <div
     class="dropzone {isDragging ? 'dragging' : ''} {disabled ? 'disabled' : ''}"
     on:click={triggerFileInput}
