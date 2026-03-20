@@ -469,4 +469,66 @@ function buildChart(
 - [Lightweight Charts Documentation](https://tradingview.github.io/lightweight-charts/)
 - [Panes API](https://tradingview.github.io/lightweight-charts/docs/panes)
 - [Netlify Astro Platform Starter](https://github.com/netlify-templates/astro-platform-starter)
-- API reference stored in `skills/custom/tradingview-charts/references/`
+- [Agent Skills Specification](https://agentskills.io/specification)
+
+## Agent Skills Compliance
+
+The tradingview-charts skill must follow the [Agent Skills specification](https://agentskills.io/specification).
+
+### Skill Structure
+
+```
+skills/custom/tradingview-charts/
+├── SKILL.md                    # Required: YAML frontmatter + instructions
+├── skill.yaml                   # Preserved for backward compatibility
+├── scripts/                     # Optional: executable code
+│   └── setup.sh                # Setup and deployment script
+├── references/                  # Optional: documentation
+│   ├── panes.md                # Lightweight Charts panes API
+│   ├── api-reference.md        # Complete API reference
+│   └── agent-skills-compliance.md  # This specification
+├── assets/                      # Optional: templates, resources
+│   └── sample-data/            # Example CSV/JSON files
+└── tradingview-charts-web/     # The Astro SPA application
+    ├── src/
+    ├── public/
+    ├── netlify/
+    └── package.json
+```
+
+### SKILL.md Requirements
+
+**Frontmatter (YAML):**
+```yaml
+---
+name: tradingview-charts
+description: Generate interactive financial charts using TradingView Lightweight Charts library. Converts CSV/JSON OHLCV data with pre-calculated Messina Signals indicators (SMA200, VSTOP, ADX/DI) into multi-pane candlestick charts deployed as Astro SPA on Netlify.
+license: MIT
+compatibility: Node.js 18+, npm 10+, Netlify deployment
+---
+
+[Instructions body]
+```
+
+**Required Sections in SKILL.md:**
+
+1. **Quick Start** - Setup commands
+2. **Running Locally** - Dev server commands
+3. **Deploying** - Netlify deployment steps
+4. **Removing** - Uninstall/cleanup commands
+5. **Data Format** - CSV/JSON schema requirements
+6. **Templates** - Available chart templates
+
+### Reference Files
+
+The `references/` directory contains on-demand documentation:
+- `panes.md` - Multi-pane chart implementation guide
+- `api-reference.md` - Complete Lightweight Charts API reference
+- `sample-data/` - Example files for testing
+
+### Scripts Directory
+
+The `scripts/` directory contains automation scripts:
+- `setup.sh` - Installs dependencies, builds for production
+- `deploy.sh` - Deploys to Netlify
+- `clean.sh` - Removes built artifacts and dependencies
