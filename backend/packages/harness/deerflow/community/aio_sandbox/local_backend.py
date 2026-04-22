@@ -503,9 +503,12 @@ class LocalContainerBackend(SandboxBackend):
         """
         cmd = [self._runtime, "run"]
 
-        # Docker-specific security options
+        # Docker-specific options
         if self._runtime == "docker":
             cmd.extend(["--security-opt", "seccomp=unconfined"])
+            # Enable host.docker.internal resolution for sandbox containers
+            # This allows sandboxes to reach services on the host (e.g., OpenBB REST API)
+            cmd.extend(["--add-host", "host.docker.internal:host-gateway"])
 
         if self._runtime == "docker":
             port_mapping = f"{_resolve_docker_bind_host()}:{port}:8080"
