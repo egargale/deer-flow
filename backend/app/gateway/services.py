@@ -138,9 +138,13 @@ _CONTEXT_CONFIGURABLE_KEYS: frozenset[str] = frozenset(
 
 def merge_run_context_overrides(config: dict[str, Any], context: Mapping[str, Any] | None) -> None:
     """Merge whitelisted keys from ``body.context`` into both ``config['configurable']``
-    and ``config['context']`` so they are visible to legacy configurable readers and
-    to LangGraph ``ToolRuntime.context`` consumers (e.g. the ``setup_agent`` tool —
-    see issue #2677)."""
+    and ``config['context']`` so they override pre-existing values.
+
+    DeerFlow context values intentionally OVERRIDE any pre-existing values in
+    the config container set up by build_run_config (e.g. values forwarded
+    from a LangGraph request's ``config.configurable``). The caller's explicit
+    context choices must always win — see issue #2677.
+    """
     if not context:
         return
     configurable = config.setdefault("configurable", {})
@@ -148,9 +152,9 @@ def merge_run_context_overrides(config: dict[str, Any], context: Mapping[str, An
     for key in _CONTEXT_CONFIGURABLE_KEYS:
         if key in context:
             if isinstance(configurable, dict):
-                configurable.setdefault(key, context[key])
+                configurable[key] = context[key]
             if isinstance(runtime_context, dict):
-                runtime_context.setdefault(key, context[key])
+                runtime_context[key] = context[key]
 
 
 def inject_authenticated_user_context(config: dict[str, Any], request: Request) -> None:

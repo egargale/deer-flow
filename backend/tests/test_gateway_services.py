@@ -323,6 +323,7 @@ def test_context_merges_into_configurable():
 
     _CONTEXT_CONFIGURABLE_KEYS = {
         "model_name",
+        "model",
         "mode",
         "thinking_enabled",
         "reasoning_effort",
@@ -330,10 +331,10 @@ def test_context_merges_into_configurable():
         "subagent_enabled",
         "max_concurrent_subagents",
     }
-    configurable = config.setdefault("configurable", {})
+    target = config.setdefault("configurable", {})
     for key in _CONTEXT_CONFIGURABLE_KEYS:
         if key in context:
-            configurable.setdefault(key, context[key])
+            target[key] = context[key]
 
     assert config["configurable"]["model_name"] == "deepseek-v3"
     assert config["configurable"]["thinking_enabled"] is True
@@ -379,41 +380,34 @@ def test_merge_run_context_overrides_noop_for_empty_context():
     assert config == before
 
 
-def test_context_does_not_override_existing_configurable():
-    """Values already in config.configurable must NOT be overridden by context."""
-    from app.gateway.services import build_run_config
+def test_context_overrides_existing_configurable():
+    """DeerFlow context values must OVERRIDE pre-existing configurable values.
+
+    The caller's explicit context choices (e.g. model_name from the UI) should
+    always win over values forwarded from a LangGraph request's config.configurable.
+    """
+    from app.gateway.services import build_run_config, merge_run_context_overrides
 
     config = build_run_config(
         "thread-1",
         {"configurable": {"model_name": "gpt-4", "is_plan_mode": False}},
         None,
     )
-
-    context = {
+    merge_run_context_overrides(config, {
         "model_name": "deepseek-v3",
         "is_plan_mode": True,
         "subagent_enabled": True,
-    }
+    })
 
-    _CONTEXT_CONFIGURABLE_KEYS = {
-        "model_name",
-        "mode",
-        "thinking_enabled",
-        "reasoning_effort",
-        "is_plan_mode",
-        "subagent_enabled",
-        "max_concurrent_subagents",
-    }
-    configurable = config.setdefault("configurable", {})
-    for key in _CONTEXT_CONFIGURABLE_KEYS:
-        if key in context:
-            configurable.setdefault(key, context[key])
-
-    # Existing values must NOT be overridden
-    assert config["configurable"]["model_name"] == "gpt-4"
-    assert config["configurable"]["is_plan_mode"] is False
+    # Context values must OVERRIDE existing configurable values
+    assert config["configurable"]["model_name"] == "deepseek-v3"
+    assert config["configurable"]["is_plan_mode"] is True
     # New values should be added
     assert config["configurable"]["subagent_enabled"] is True
+    # Values are also propagated to context
+    assert config["context"]["model_name"] == "deepseek-v3"
+    assert config["context"]["is_plan_mode"] is True
+    assert config["context"]["subagent_enabled"] is True
 
 
 def test_inject_authenticated_user_context_overrides_client_user_id():
