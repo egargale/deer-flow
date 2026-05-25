@@ -62,3 +62,6 @@ config.yaml.bak
 .worktrees
 CLAUDE.md
 .qwen/
+
+# Nginx basic auth password file (never commit)
+docker/nginx/.htpasswd
