@@ -396,6 +396,14 @@ tools:
   #   max_results: 5
   #   # api_key: $TAVILY_API_KEY  # Set if needed
 
+  # Web search tool (uses ZhipuAI BigModel, requires BIGMODEL_API_KEY)
+  # - name: web_search
+  #   group: web
+  #   use: deerflow.community.bigmodel.tools:web_search_tool
+  #   max_results: 5
+  #   search_engine: search_pro  # search_std | search_pro | search_pro_sogou | search_pro_quark
+  #   api_key: $BIGMODEL_API_KEY
+
   # Web search tool (uses InfoQuest, requires InfoQuest API key)
   # - name: web_search
   #   group: web
@@ -427,6 +435,14 @@ tools:
   #   use: deerflow.community.exa.tools:web_fetch_tool
   #   # api_key: $EXA_API_KEY
 
+  # Web fetch tool (uses ZhipuAI BigModel reader, requires BIGMODEL_API_KEY)
+  # NOTE: Only one web_fetch provider can be active at a time.
+  # - name: web_fetch
+  #   group: web
+  #   use: deerflow.community.bigmodel.tools:web_fetch_tool
+  #   timeout: 20
+  #   api_key: $BIGMODEL_API_KEY
+
   # Web fetch tool (uses Jina AI reader)
   - name: web_fetch
     group: web
@@ -449,6 +465,21 @@ tools:
   #   group: web
   #   use: deerflow.community.firecrawl.tools:web_fetch_tool
   #   # api_key: $FIRECRAWL_API_KEY
+
+  # OCR tool (uses ZhipuAI BigModel, requires BIGMODEL_API_KEY)
+  # - name: ocr
+  #   group: web
+  #   use: deerflow.community.bigmodel.tools:ocr_tool
+  #   language_type: CHN_ENG  # AUTO | ENG | JAP | KOR | FRE | ...
+  #   api_key: $BIGMODEL_API_KEY
+
+  # File parser tool (uses ZhipuAI BigModel, requires BIGMODEL_API_KEY)
+  # - name: file_parser
+  #   group: file:read
+  #   use: deerflow.community.bigmodel.tools:file_parser_tool
+  #   tool_type: lite  # lite | expert | prime
+  #   max_wait: 120
+  #   api_key: $BIGMODEL_API_KEY
 
   # Image search tool (uses DuckDuckGo)
   # Use this to find reference images before image generation
